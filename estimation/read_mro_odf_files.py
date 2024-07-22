@@ -325,6 +325,8 @@ def run_estimation( input_index ):
             # Create observation model settings
             doppler_link_ends = compressed_observations.link_definitions_per_observable[
                 estimation_setup.observation.dsn_n_way_averaged_doppler]
+            
+            print(doppler_link_ends)
             observation_model_settings = list()
             for current_link_definition in doppler_link_ends:
                 observation_model_settings.append(estimation_setup.observation.dsn_n_way_doppler_averaged(
@@ -423,7 +425,7 @@ def run_estimation( input_index ):
             rsw_state_difference = get_rsw_state_difference(
                 estimated_state_history, spacecraft_name, spacecraft_central_body, global_frame_orientation)
             save2txt(rsw_state_difference, 'postfit_rsw_state_difference_' + str(input_index) + '.dat',
-                     current_directory)
+                     current_directory + output_directory )
 
         #
         # # Create estimator
@@ -439,10 +441,10 @@ def run_estimation( input_index ):
 if __name__ == "__main__":
     print('Start')
     inputs = []
-    for i in range(8):
+    for i in range(4):
         inputs.append(i)
     # Run parallel MC analysis
-    with mp.get_context("fork").Pool(1) as pool:
+    with mp.get_context("fork").Pool(4) as pool:
         pool.map(run_estimation,inputs)
 
 

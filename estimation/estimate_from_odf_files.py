@@ -9,7 +9,7 @@ Copyright (c) 2010-2022, Delft University of Technology. All rights reserved. Th
 """
 
 import sys
-sys.path.insert(0, "/home/dominic/Tudat/tudat-bundle/tudat-bundle/cmake-build-default/tudatpy")
+sys.path.insert(0, "/home/dominic/Tudat/tudat-bundle/tudat-bundle/cmake-build-debug/tudatpy")
 
 # Load required standard modules
 import multiprocessing as mp
@@ -245,7 +245,7 @@ def run_estimation( input_index ):
 
             # Compute simulated observations
             simulated_observations = estimation.simulate_observations(observation_simulation_settings,
-                                                                      observation_simulators, bodies)
+                                                                      opropagator_settingsbservation_simulators, bodies)
             residual_collection = estimation.create_residual_collection(compressed_observations, simulated_observations)
 
             residual_filter_cutoff = dict()
