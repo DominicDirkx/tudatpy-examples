@@ -1,25 +1,25 @@
-#!/usr/bin/env python
-# coding: utf-8
+# Parameters Estimation During JUICE's Ganymede Orbital Phase
+"""
 
-# # Parameters Estimation During JUICE's Ganymede Orbital Phase
-# 
-# ## Objectives
-# With this example, you will learn **how to simulate and solve a relevant estimation problem using the `JUICE`'s spacecraft during one of its two Ganymede Circular Orbit Phases**. `JUICE` will make detailed observations of JUPITER and its large ocean-bearing moons – Ganymede, Callisto and Europa – with a suite of remote sensing, geophysical and in situ instruments. Range and Doppler measurements of `JUICE` taken from Earth will improve our knowledge of the Jovian system properties and dynamics. 
-# 
-# This example highlights the basic steps of setting up an orbit estimation routine. In particular, we will focus on how to set up and perform the full estimation of the spacecraft's state and Ganymede's gravitational parameter and spherical harmonics coefficients.
-# 
-# As you will see, we will use a *multi-arc strategy* to simulate and propagate `JUICE`'s orbit. Further, we will highlight all relevant features of modelling a tracking station on Earth. Using this station, we will simulate a tracking routine of the spacecraft using a series of one- and -way doppler measurement every 180 seconds. To assure an uninterrupted line-of-sight between the station and the spacecraft over each *pass*, a minimum elevation angle of more than $15 \textdegree$ above the horizon - as seen from the station - will be imposed as constraint on the simulation of observations.
-# 
-# Let's start with importing the required modules. Most - if not all - of them (spice, numerical_simulation, environment, propagation) are used quite extensively in pretty much all tudatpy examples.They will soon become your friends (if they haven't already!). 
-# 
+"""
 
-# In[1]:
+## Objectives
+"""
+With this example, you will learn **how to simulate and solve a relevant estimation problem using the `JUICE`'s spacecraft during one of its two Ganymede Circular Orbit Phases**. `JUICE` will make detailed observations of JUPITER and its large ocean-bearing moons – Ganymede, Callisto and Europa – with a suite of remote sensing, geophysical and in situ instruments. Range and Doppler measurements of `JUICE` taken from Earth will improve our knowledge of the Jovian system properties and dynamics. 
 
+This example highlights the basic steps of setting up an orbit estimation routine. In particular, we will focus on how to set up and perform the full estimation of the spacecraft's state and Ganymede's gravitational parameter and spherical harmonics coefficients.
+
+As you will see, we will use a *multi-arc strategy* to simulate and propagate `JUICE`'s orbit. Further, we will highlight all relevant features of modelling a tracking station on Earth. Using this station, we will simulate a tracking routine of the spacecraft using a series of one- and -way doppler measurement every 180 seconds. To assure an uninterrupted line-of-sight between the station and the spacecraft over each *pass*, a minimum elevation angle of more than $15 \textdegree$ above the horizon - as seen from the station - will be imposed as constraint on the simulation of observations.
+
+Let's start with importing the required modules. Most - if not all - of them (spice, numerical_simulation, environment, propagation) are used quite extensively in pretty much all tudatpy examples.They will soon become your friends (if they haven't already!). 
+
+"""
 
 # Load required standard modules
 import os
 
 import numpy as np
+from h2.settings import Settings
 from matplotlib import pyplot as plt
 
 # Load required tudatpy modules
@@ -42,9 +42,6 @@ from tudatpy.kernel.astro import gravitation
 # (see: Vallado, p. 546, Eq. (8.22) and TudatPy API reference: https://py.api.tudat.space/en/latest/gravitation.html)
 # NOTE: Values for the $C_{l,m}$ coefficients are taken from Anderson et al. (1996): https://www.nature.com/articles/384541a0}.
 
-# In[2]:
-
-
 def get_gravity_ganymede():
 
     mu_ganymede = spice.get_body_properties("Ganymede", "GM", 1)[0]*10**9 #same as Sam's: 9877.5555788329
@@ -59,19 +56,12 @@ def get_gravity_ganymede():
     return environment_setup.gravity_field.spherical_harmonic(mu_ganymede, radius_ganymede, cosine_coef, sine_coef, "IAU_Ganymede")
 
 
-# The spherical harmonics coefficients ($C_{l,m}$, $S_{l,m}$) describe the gravity field. 
-# However, as the degree l increases, the number of orders m increases very rapidly. 
-# This might lead to overfitting and numerical problems, which might lead some terms to "explode".
-# However, since we know that, as l grows, the coefficients C and S get smaller and smaller, 
-# Kaula proposed a constraint (often referred to as the Kaula power law or Kaula's rule) that provides an UPPER bound
+# The spherical harmonics coefficients ($C_{l,m}$, $S_{l,m}$) describe the gravity field of a body.
+# As its degree $l$ increases, the number of orders $m$ increases, and as $l$ grows, the coefficients $C_{lm}$ and $S_{lm}$ get (on average) smaller and smaller. To prevent overfitting and numerical problems during the estimation, which might lead some coefficient to "explode" (e.g. be assigned unrealistically high values) Kaula proposed a constraint -often referred to as the Kaula power law or Kaula's rule- that provides an upper bound
 # on the expected magnitude of these coefficients. 
-# Kaula's constraints can be used as apriori information on the uncertainties in the Ganymede's C, S coefficients. 
-# Kaula's values can therefore be used as a starting point in the inverse apriori covariance matrix. 
+# Kaula's constraints is often used as a priori information on the uncertainties in spherical harmonic coefficients.
 # However - as we will see later in this example - if better constraints (perhaps given in the literature) 
 # are available for some degree and order ($l$,$m$)  we can decide to pick these in place of the "rough" Kaula constraint. 
-
-# In[3]:
-
 
 def getKaulaConstraint(kaula_constraint_multiplier, degree):
     return kaula_constraint_multiplier / degree ** 2
@@ -97,51 +87,37 @@ kernels = [path+'/../kernels/kernel_juice.bsp', path+'/../kernels/kernel_noe.bsp
 spice.load_standard_kernels(kernels)
 
 
-# `JUICE` will undergo two circular orbit phases around Ganymede at two different altitudes: **GCO5000** at around $5000 km$ (start date: 2035-01-17) 
-# and **GCO500** at around $500 km$ (start date: 2035-05-21). We are interested in GCO500, which will end after around 4 months (120 days). 
-# Let's initialize the start and end epoch in the variable `start_gco` and `end_gco`, shall we?. 
-# These have to be given in *seconds* after the 1st of January 2000. 
-# The 21st of May corresponds to the 140th day of the year, or around 0.3844. 
-# Therefore, the GCO500 phase will start at `start_gco` $= 35.3844$ years after the 1st Jan 2000. 
+# `JUICE` will perform two orbit phases around Ganymede at two different altitudes: **GCO5000** at around 5000 km (start date: 2035-01-17)
+# and **GCO500** at around 500 km (start date: 2035-05-21). For this example, we are interested in GCO500, which will end after around 4 months (120 days).
+# To start, let's initialize the start and end epoch in the variable `start_gco` and `end_gco`.
 # As for this example, we will set the end epoch after 100 days. 
-# `JUICE` will be orbiting Ganymede, so we choose Ganymede and J2000 as origin and orientation of the global reference frame.
-
-# In[4]:
-
+# `JUICE` will be orbiting Ganymede, so we choose Ganymede and J2000 as origin and orientation of the global reference frame, respectively.
 
 # Set simulation start and end epochs
-start_gco = 35.3844 * constants.JULIAN_YEAR  # beginning circular orbital phase
+start_gco = DateTime( 2035, 5, 21, 12, 0, 0.0 ).epoch( )  # beginning circular orbital phase
 end_gco = start_gco + 100.0 * constants.JULIAN_DAY # 35.73 * constants.JULIAN_YEAR  # end circular orbital phase
 # Define global propagation settings
 global_frame_origin = "Ganymede"
 global_frame_orientation = "J2000"
 
 
-# Picture it: while on the GCO500 phase, the gravitational forces acting on `JUICE` will be the ones exerted by Ganymede, Jupiter and the Sun.
-# For this reason, as you will see in a bit, Ganymede, Sun and Jupiter will be the only celestial objects we will consider in our environment
-# when it comes to modelling the spacecraft acceleration. Nevertheless, we will also need to create the **Earth's object**.  
+# For this example, we will limit ourselves to the gravitational forces acting on `JUICE` exerted by Ganymede, Jupiter and the Sun, which we will need to add to our environment. We will also need to create the **Earth's object**.
 # Why is that? Even though the Earth's gravitational pull on`JUICE`is negligible during the whole the GCO500 phase, 
 # we will need our planet to be present in the environment because, later on, we will have to set up our *observation model*,
-# meaning that we will have to set up a link between`JUICE`and, guess who? The **Earth**. 
-
-# In[5]:
-
+# meaning that we will have to set up a link between`JUICE`and the **Earth**.
 
 # Create default body settings
 bodies_to_create = ["Ganymede", "Jupiter", "Sun", "Earth"]
 body_settings = environment_setup.get_default_body_settings(bodies_to_create, global_frame_origin, global_frame_orientation)
 
 
-# We want to analyze `JUICE`'s trajectory with respect to a **Ganymede-centered** body frame. 
+# DOMINIC COMMENT: WHY THIS PART? We want to analyze `JUICE`'s trajectory with respect to a **Ganymede-centered** body frame.
 # Since Tudat propagates the trajectories with respect to a frame with inertial origin and orientation (e.g. $J2000$), 
 # it is necessary to get the **rotation matrix** between these two frames In order to do that
 # * we compute the (constant) angular velocity (rotation rate) of Ganymede with respect to Jupiter, using Kepler's third law.
 #    Note that, in order to do this, we first need to get the semi-major axis of Ganymede. 
 #    Since spice provides us with Ganymede's cartesian state, we need to convert these into keplerian elements, thus taking the semi-major axis. 
 # * we use spice again, this time to get the rotation matrix at the start epoch: `start_gco`.
-
-# In[6]:
-
 
 # Compute rotation rate for Ganymede
 mu_jupiter = spice.get_body_properties("Jupiter", "GM", 1)[0] * 1.0e9
@@ -154,9 +130,6 @@ initial_orientation_ganymede = spice.compute_rotation_matrix_between_frames("J20
 
 # Finally, we are ready to get Ganymede's rotation and gravity field model, adding it the body_settings
 
-# In[7]:
-
-
 # Get Rotation settings
 body_settings.get("Ganymede").rotation_model_settings = environment_setup.rotation_model.simple(
     "J2000", "IAU_Ganymede", initial_orientation_ganymede, start_gco, rotation_rate_ganymede)
@@ -165,12 +138,13 @@ body_settings.get("Ganymede").gravity_field_settings = get_gravity_ganymede()
 
 
 # We will implement what's known as a "*multi-arc strategy*" for `JUICE`'s orbit estimation. Here, we offer a very short explanation of why we decide to do so.
-# Sometimes, the available dynamical models might not be representative enough of reality. For instance, radiation pressure values
-# on our spacecraft might be poorly known. This could result in **dynamical modelling errors** that could exceed the measurement accuracy by orders of magnitude.
-# Not only that: our observations might be not evenly distributed in time. Indeed, in the general operative case, sensors will measure various "*passes*" 
-# ("pass" = the time span over which the spacecraft is visible). For instance: for an interplanetary probe, the rotation of the Earth controls each pass duration. 
+# For spacecraft dynamics, the available dynamical models have imperfections that add up over time. For instance, radiation pressure properties
+# on our spacecraft might be poorly known. This could result in accumulated **dynamical modelling errors** that can exceed the measurement accuracy, by orders of magnitude if no measures are taken.
+# Not only that: our observations might be not evenly distributed in time. Indeed, in the general operative case, tracking systems will collect data ovcer various "*passes*"
+# ("pass" = the time span over which the spacecraft is visible). For instance: for an interplanetary probe, the rotation of the Earth controls each pass duration as the ground station moves in and out of view.
 # If only a few stations can be used, the observational data will be concentrated in the time spans of the passes, with perhaps significant **gaps** in between.
-# Let's call $dt$ the timespan of a pass, and $\Delta T$ the timespan between two consecutive passes, and let's assume $\Delta T \gg dt$.
+# 
+# DOMINIC COMMENT: I THINK THIS PART CAN BE SHORTENED Let's call $dt$ the timespan of a pass, and $\Delta T$ the timespan between two consecutive passes, and let's assume $\Delta T \gg dt$.
 # It can be shown that even though the propagation error is negligible with respect to the measurement error over one pass ($dt$), 
 # it will become significant over the time span between two consecutive passes ($\Delta T$) (refer for example, to: *Theory of Orbit Determination, Milani & Gronchi*).
 # For these reasons (modelling errors and/or huge gaps between consecutive passes) it is convenient to **split** the observation timespan into shorter intervals.
@@ -180,13 +154,11 @@ body_settings.get("Ganymede").gravity_field_settings = get_gravity_ganymede()
 # Following this considerations, we will now create the satellite - `JUICE`, and the multi-arc ephemeris settings.  
 # Using an `empty_body` as a blank canvas for the satellite, we will define a mass of $5000 kg$.
 
-# In[8]:
-
-
 # Create empty settings for JUICE
 body_settings.add_empty_settings("JUICE")
-# Create system of bodies
+
 # Add JUICE spacecraft (mas 5000kg) to system of bodies
+body_settings.get("JUICE").constant_mass = 5.0e3
 
 # Create empty multi-arc ephemeris for JUICE
 empty_ephemeris_dict = dict()
@@ -196,17 +168,16 @@ juice_ephemeris = environment_setup.ephemeris.tabulated(
     global_frame_orientation)
 juice_ephemeris.make_multi_arc_ephemeris = True
 body_settings.get("JUICE").ephemeris_settings = juice_ephemeris
+
+# Create system of bodies
 bodies = environment_setup.create_system_of_bodies(body_settings)
-bodies.get("JUICE").mass = 5.0e3
 
 
-# Next, a reference area of $100 m^2$ is set. (JUICE has big solar panels!)
+# Next, a reference area of 100 m$^2$ is set. (JUICE has big solar panels!)
 # A Solar Radiation Pressure (**SRP**) coefficient of $1.2$ is also set for JUICE. The SRP will act all over this reference area.
 # Also, while setting up the radiation pressure interface, Ganymede is set as a body that can **occult** the radiation emitted by the Sun.
 
-# In[9]:
-
-
+# DOMINIC_COMMENT: MOVE INTO BODY Settings
 # Create radiation pressure settings
 ref_area = 100.0
 srp_coef = 1.2
@@ -223,16 +194,11 @@ environment_setup.add_radiation_pressure_target_model(bodies, "JUICE", juice_srp
 # In particular, we will consider:
 # * **Gravitational acceleration** using a spherical harmonic approximation up to 30th degree and order for Ganymede.
 # * **Empirical Acceleration** For Ganymede, accounting for un-modelled accelerations acting on the Moon (e.g. contributions by other Galilean moons)
-# * **gravitational acceleration** using a **pherical harmonic** approximation up to 2th degree and order 0 for Jupiter.
-# * **gravitational acceleration of the Sun**, considered as a point mass.
-# * **non-gravitational acceleration** given by the **SRP**.
-# 
-# * **Radiation pressure** experienced by the spacecraft - shape-wise approximated as a spherical cannonball - due to the Sun.
+# * **Gravitational acceleration** using a **spherical harmonic** approximation up to 2nd degree and order 0 for Jupiter.
+# * **Gravitational acceleration of the Sun**, considered as a point mass.
+# * **Radiation pressure acceleration** experienced by the spacecraft - shape-wise approximated as a spherical cannonball - due to the Sun.
 # 
 # The defined acceleration settings are then applied to `JUICE` by means of a dictionary, which is finally used as input to the propagation setup to create the acceleration models.
-
-# In[10]:
-
 
 body_to_propagate = ["JUICE"]
 central_body = ["Ganymede"]
@@ -258,9 +224,6 @@ acceleration_models = propagation_setup.create_acceleration_models(
 
 # Let's define the start and end epoch (in Julian Days) for each arc, and print their number.
 
-# In[11]:
-
-
 # Define propagation arcs during GCO (one day long)
 arc_duration = 1.0 * constants.JULIAN_DAY
 
@@ -279,9 +242,6 @@ print(f'Total number of arcs for GCO500: {nb_arcs}')
 
 # For the problem at hand, we will use an `RKF78` integrator with a fixed step-size of $180$ seconds. 
 
-# In[12]:
-
-
 # Define integrator settings
 time_step = 180.0
 integrator_moons = propagation_setup.integrator.runge_kutta_fixed_step_size(
@@ -292,9 +252,6 @@ integrator_moons = propagation_setup.integrator.runge_kutta_fixed_step_size(
 # These are extracted from `JUICE`s SPICE ephemeris at the start time for each propagation arc, 
 # based on its corresponding `arc_start` value.
 
-# In[13]:
-
-
 # Define arc-wise initial states for JUICE wrt Ganymede.
 # The initial states are extracted from JUICE's SPICE ephemeris (JUICE's SPICE ID is -28) at the start of each propagation arc.
 initial_states = []
@@ -302,11 +259,8 @@ for i in range(nb_arcs):
     initial_states.append(spice.get_body_cartesian_state_at_epoch("-28", "Ganymede", "J2000", "None", arc_start_times[i]))
 
 
-# We would like to save the **latitude** and **longitude** of `JUICE` with respect to Gaymede during the propagation, 
+# We would like to save the **latitude** and **longitude** of `JUICE` in the Ganymede-fixed frame during the propagation,
 # in order to later plot the position of `JUICE` in the plane of the sky.
-
-# In[14]:
-
 
 # Define dependent variables to be saved during propagation
 dependent_variables_names = [
@@ -315,13 +269,10 @@ dependent_variables_names = [
 ]
 
 
-# Now it's time to define the arc-wise propagator setting. For each arc $i$, $i = 1,2,...,n_{arcs}$, 
-# we propagate from the initial time corresponding to arc $i$, and terminate the propagation at the corresponding end time.
+# Now it's time to define the arc-wise propagator setting. For each arc $i$, with $i = 1,2,...,n_{arcs}$,
+# we propagate from the initial time corresponding to arc $i$, and terminate the propagation at the corresponding end time. DOMINIC COMMENT: NO SMALL ARC OVERLAP?
 # We will use a *Cowell propagator*. 
 # Also, don't forget to add the dependent variables (latitude and longitude) in the propagator setting list!
-
-# In[15]:
-
 
 # Define arc-wise propagator settings
 propagator_settings_list = []
@@ -333,10 +284,7 @@ for i in range(nb_arcs):
 propagator_settings = propagation_setup.propagator.multi_arc(propagator_settings_list)
 
 
-# We are now ready to propagate the dynamics and store the results for every arc.
-
-# In[16]:
-
+# We are now ready to propagate the dynamics and store the results for every arc. DOMINIC COMMENT: WHY IS THE DYNAMICS PROPAGATED HERE? THIS WILL BE DONE IN THE ESTIMATOR USING THE EXACT SAME SETTINGS
 
 # Propagate dynamics and retrieve simulation results
 simulator = numerical_simulation.create_dynamics_simulator(bodies, propagator_settings)
@@ -346,9 +294,6 @@ simulation_results = simulator.propagation_results.single_arc_results
 # Having propagted the arcs, it is now time to simulate the observations. Let's start by **setting up our environment**.
 # Multiple stations can be considered, but we will only simulate observations from the *Malargüe* station for now.
 # This is ESA's newest tracking station and is located 30 km south of the city of Malargüe, about 1200 km west of Buenos Aires, Argentina. 
-
-# In[17]:
-
 
 # Manually define ESTRACK ground stations (for now limited to Malargue only)
 station_names = ["Malargue"]
@@ -363,9 +308,6 @@ for station in station_names:
 # (https://py.api.tudat.space/en/latest/observation.html#observation) of tudat. 
 # During the link definition, each member is assigned a certain function within the link, for instance as "`transmitter`, `receiver` or `reflector`.
 # Once two (or more) members are connected to a link, they can be used to simulate observations along this particular link. 
-
-# In[18]:
-
 
 # Define link ends for two-way Doppler and range observables, for each ESTRACK station
 link_ends = []
@@ -382,9 +324,6 @@ for station in station_names:
 # To make things more realistic, we can also set how long after the start of each propagation arc our observation will take place.
 # Here, we (*arbitrarily*) decide to start each observation **2 hours** after the start of each propagation arc.
 
-# In[19]:
-
-
 # Define tracking arcs (arc duration is set to 8h/day during GCO)
 # The tracking arcs are (arbitrarily) set to start 2h after the start of each propagation arc.
 tracking_arc_duration = 8.0 * 3600.0
@@ -400,11 +339,8 @@ for arc_start in arc_start_times:
 # To fully define an observation model for a given link, we have to create a list of the observation model settings
 # of all desired observable types and their associated links. This list will later be used as input to the actual estimator object.
 # Each observable type has its own function for creating observation model settings.
-# In this example we will use the `n_way_doppler_averaged` and the `two_way_range()` functions to model a series of two-way Doppler and range observations.
+# In this example we will use the `n_way_doppler_averaged` and the `two_way_range()` functions to model a series of two-way Doppler and two-way range observations.
 # We can also take into account for effects such as **light time correction** or **biases** that will help making the observation model even more realistic (note that, for now, the **biases** for each arc are set to **zero**).
-
-# In[20]:
-
 
 # Create observation settings for each link ends and observable
 # Define light-time calculations settings
@@ -423,7 +359,7 @@ for link_end in link_ends:
     observation_settings_list.append(observation.two_way_range(link_definition, [light_time_correction_settings], range_bias_settings))
 
 
-# We now have to define the times at which observations are to be simulated. 
+# DOMINIC COMMENT: FOR THE OBSERVATION TIMING, DOESN'T THIS APPROACH DISREGARD MANY OBSERVATIONS (DUE TO A MISMATCH BETWEEN THE CHOSEN 8-HOUR PERIOD, AND THE MALARGUE VISIBILITY?) We now have to define the times at which observations are to be simulated.
 # To this end, we will define the settings for the simulation of the individual observations from the previously defined observation models.
 # Both **range and doppler measurements** will likely be taken with a **different cadence**, 
 # so we can create a dictionary with the corresponding times (different keys and values for each observing mode). 
@@ -433,9 +369,6 @@ for link_end in link_ends:
 # * Ganymede is not occulting the signal
 # * Jupiter is not occulting the signal
 #   
-
-# In[21]:
-
 
 # Define observation simulation times for both Doppler and range observables
 doppler_cadence = 60.0
@@ -491,12 +424,9 @@ observation.add_viability_check_to_all(observation_simulation_settings, viabilit
 # For this example estimation, we decided to estimate:
 # 1) `JUICE` initial state
 # 2) Ganymede's gravitational parameter
-# 3) Ganymede's spherical harmonics coefficients, from degree $2$ to $15$.
+# 3) Ganymede's spherical harmonics coefficients, from degree $2$ up to degree and order $15$.
 # 4) Malargue ground station position
 # 5) Empirical acceleration acting on JUICE
-
-# In[22]:
-
 
 # Define parameters to estimate
 # Add arc-wise initial states of the JUICE spacecraft wrt Ganymede
@@ -517,9 +447,6 @@ parameter_settings.append(estimation_setup.parameter.spherical_harmonics_s_coeff
 
 # When propagating the dynamics of the spacecraft during each arc,  we might want to take into account for possible errors in the accelerometer calibration of the spacecraft. These are modelled by introducing an **empirical acceleration** components along each spatial dimension. 
 
-# In[23]:
-
-
 # Add arc-wise empirical accelerations acting on the JUICE spacecraft
 acc_components = {estimation_setup.parameter.radial_empirical_acceleration_component: [estimation_setup.parameter.constant_empirical],
                   estimation_setup.parameter.along_track_empirical_acceleration_component: [estimation_setup.parameter.constant_empirical],
@@ -530,18 +457,22 @@ parameter_settings.append(estimation_setup.parameter.arcwise_empirical_accelerat
 for station in station_names:
     parameter_settings.append(estimation_setup.parameter.ground_station_position("Earth", station))
 
-# # Add arc-wise range biases as consider parameters
-# for link_end in link_ends:
-#     parameter_settings.append(estimation_setup.parameter.arcwise_absolute_observation_bias(
-#         observation.LinkDefinition(link_end), observation.n_way_range_type, tracking_arcs_start, observation.receiver))
+# Add arc-wise range biases as consider parameters
+"""
+for link_end in link_ends:
+    parameter_settings.append(estimation_setup.parameter.arcwise_absolute_observation_bias(
+        observation.LinkDefinition(link_end), observation.n_way_range_type, tracking_arcs_start, observation.receiver))
+"""
 
 
-# # Define consider parameters (COMMENTED FOR NOW BECAUSE OF OBS BIAS PARTIAL ISSUE)
-# # Add arc-wise range biases as consider parameters
-# consider_parameters_settings = []
-# for link_end in link_ends:
-#     consider_parameters_settings.append(estimation_setup.parameter.arcwise_absolute_observation_bias(
-#         observation.LinkDefinition(link_end), observation.n_way_range_type, tracking_arcs_start, observation.receiver))
+# Define consider parameters (COMMENTED FOR NOW BECAUSE OF OBS BIAS PARTIAL ISSUE)
+"""
+# Add arc-wise range biases as consider parameters
+consider_parameters_settings = []
+for link_end in link_ends:
+    consider_parameters_settings.append(estimation_setup.parameter.arcwise_absolute_observation_bias(
+        observation.LinkDefinition(link_end), observation.n_way_range_type, tracking_arcs_start, observation.receiver))
+"""
 
 # Create parameters to estimate object
 parameters_to_estimate = estimation_setup.create_parameter_set(parameter_settings, bodies, propagator_settings) #, consider_parameters_settings)
@@ -556,12 +487,9 @@ print(f'Total number of parameters to estimate: {nb_parameters}')
 # * observation models (observation_settings_list) 
 # * dynamical, numerical, and integrator setup (propagator_settings)
 # 
-# Underneath its hood, upon creation, the estimator automatically takes care of setting up the relevant 
-# Observation Simulator and Variational Equations, which will subsequently be required 
+# Under the hood, upon creation, the estimator automatically takes care of setting up the relevant
+# observation simulator and variational equations solver, which will subsequently be required
 # for the simulation of observations and the estimation of parameters, respectively.
-
-# In[24]:
-
 
 # Create the estimator
 estimator = numerical_simulation.Estimator(bodies, parameters_to_estimate, observation_settings_list, propagator_settings)
@@ -579,9 +507,6 @@ simulated_observations = estimation.simulate_observations(observation_simulation
 # Kaula's rule with the updated values for the coefficients $C_{2,0}$ and $C_{2,2}$. 
 # We will also set tight constraints on the remaining degree $2$ $C$ and $S$ coefficients. 
 # Finally, a priori knowledge for the value of the empirical acceleration acting on `JUICE` is set.
-
-# In[25]:
-
 
 # Define a priori covariance matrix
 inv_apriori = np.zeros((nb_parameters, nb_parameters))
@@ -602,7 +527,8 @@ for i in range(indices_mu[1]):
     inv_apriori[indices_mu[0]+i, indices_mu[0]+i] = a_priori_mu**-2
 
 # Set a priori constraint for Ganymede's gravity field coefficients
-# ERROR IN EXPOSE FUNCTION (RETURN SINE COEFFICIENTS INDICES), TEMPORARY FIX FOR NOW
+# ERROR IN EXPOSE FUNCTION (RETURN SINE COEFFICIENTS INDICES), TEMPORARY FIX FOR NOW D
+# DOMINIC COMMENT: WHAT IS THE ERROR EXACTLY?
 nb_cosine_coef = (max_deg_ganymede_gravity+1) * (max_deg_ganymede_gravity+2) // 2 - 3  # the minus 3 accounts for degrees 0 and 1 coefficients which are not estimated
 indices_cosine_coef = (nb_arcs*6+1, nb_cosine_coef)
 # indices_cosine_coef = parameters_to_estimate.indices_for_parameter_type((estimation_setup.parameter.spherical_harmonics_cosine_coefficient_block_type, ("Ganymede", "")))[0]
@@ -629,13 +555,15 @@ inv_apriori[indices_sine_coef[0]+1, indices_sine_coef[0]+1] = 1.0e-12**-2
 # for i in range(indices_rotation_rate[0][1]):
 #     inv_apriori[indices_rotation_rate[0][0]+i, indices_rotation_rate[0][0]+i] = 1.0/a_priori_rotation_rate**2
 
-# # A priori rotation pole of Ganymede
-# a_priori_pole_ra = 4.0e-5
-# a_priori_pole_dec = 5.0e-5
-# indices_rotation_pole = parameters_to_estimate.indices_for_parameter_type((estimation_setup.parameter.rotation_pole_position_type, ("Ganymede", "")))[0]
-# for i in range(indices_rotation_pole[1]//2):
-#     inv_apriori[indices_rotation_pole[0]+i*2, indices_rotation_pole[0]+i*2] = a_priori_pole_ra**-2  # a priori RA
-#     inv_apriori[indices_rotation_pole[0]+i*2+1, indices_rotation_pole[0]+i*2+1] = a_priori_pole_dec **-2  # a priori DEC
+# A priori rotation pole of Ganymede
+"""
+a_priori_pole_ra = 4.0e-5
+a_priori_pole_dec = 5.0e-5
+indices_rotation_pole = parameters_to_estimate.indices_for_parameter_type((estimation_setup.parameter.rotation_pole_position_type, ("Ganymede", "")))[0]
+for i in range(indices_rotation_pole[1]//2):
+    inv_apriori[indices_rotation_pole[0]+i*2, indices_rotation_pole[0]+i*2] = a_priori_pole_ra**-2  # a priori RA
+    inv_apriori[indices_rotation_pole[0]+i*2+1, indices_rotation_pole[0]+i*2+1] = a_priori_pole_dec **-2  # a priori DEC
+"""
 
 
 # Set a priori constraints for empirical accelerations acting on JUICE
@@ -657,16 +585,18 @@ apriori_constraints = np.reciprocal(np.sqrt(np.diagonal(inv_apriori)))
 # print(apriori_constraints)
 
 # COMMENTED FOR NOW BECAUSE OF OBS BIAS PARTIAL ISSUE
-# # Define consider parameters covariance
-# nb_consider_parameters = nb_arcs*len(station_names)
-# consider_parameters_covariance = np.zeros((nb_consider_parameters, nb_consider_parameters))
+# Define consider parameters covariance
+"""
+nb_consider_parameters = nb_arcs*len(station_names)
+consider_parameters_covariance = np.zeros((nb_consider_parameters, nb_consider_parameters))
 #
-# # Set consider covariance for range biases for all three ESTRACT stations
-# a_priori_biases = 2.0
-# for station in station_names:
-#     indices_biases = (0, nb_arcs*len(station_names))
-#     for i in range(indices_biases[1]):
-#         consider_parameters_covariance[indices_biases[0] + i, indices_biases[0] + i] = a_priori_biases ** 2
+# Set consider covariance for range biases for all three ESTRACT stations
+a_priori_biases = 2.0
+for station in station_names:
+    indices_biases = (0, nb_arcs*len(station_names))
+    for i in range(indices_biases[1]):
+        consider_parameters_covariance[indices_biases[0] + i, indices_biases[0] + i] = a_priori_biases ** 2
+"""
 
 
 # Having defined the a priori constraints, the **input covariance** is created.
@@ -678,9 +608,6 @@ apriori_constraints = np.reciprocal(np.sqrt(np.diagonal(inv_apriori)))
 # * checking for correlations between parameters
 # * plotting the formal errors
 # * checking the weighted design matrix 
-
-# In[26]:
-
 
 # Define covariance input settings
 covariance_input = estimation.CovarianceAnalysisInput(simulated_observations, inv_apriori) #, consider_parameters_covariance)
@@ -706,28 +633,29 @@ partials = covariance_output.weighted_design_matrix
 print('Formal errors')
 print(covariance_output.formal_errors)
 
-# # COMMENTED FOR NOW NO CONSIDER PARAMETERS BECAUSE OF OBS BIAS PARTIAL ISSUE
-# # Retrieve results with consider parameters
-# consider_covariance_contribution = covariance_output.consider_covariance_contribution
-# covariance_with_consider_parameters = covariance_output.unnormalized_covariance_with_consider_parameters
-# formal_errors_with_consider_parameters = np.sqrt(np.diagonal(covariance_with_consider_parameters))
-# # Compute correlations with consider parameters
-# correlations_with_consider_parameters = covariance_with_consider_parameters
-# for i in range(nb_parameters):
-#     for j in range(nb_parameters):
-#         correlations_with_consider_parameters[i, j] /= (formal_errors_with_consider_parameters[i] * formal_errors_with_consider_parameters[j])
+# COMMENTED FOR NOW NO CONSIDER PARAMETERS BECAUSE OF OBS BIAS PARTIAL ISSUE
+"""
+# Retrieve results with consider parameters
+consider_covariance_contribution = covariance_output.consider_covariance_contribution
+covariance_with_consider_parameters = covariance_output.unnormalized_covariance_with_consider_parameters
+formal_errors_with_consider_parameters = np.sqrt(np.diagonal(covariance_with_consider_parameters))
+# Compute correlations with consider parameters
+correlations_with_consider_parameters = covariance_with_consider_parameters
+for i in range(nb_parameters):
+    for j in range(nb_parameters):
+        correlations_with_consider_parameters[i, j] /= (formal_errors_with_consider_parameters[i] * formal_errors_with_consider_parameters[j])
+"""
 
-# # Propagate formal errors (TO BE FIXED, NOT YET POSSIBLE FOR MULTI-ARC)
-# output_times = np.arange(start_gco, end_gco, 3600.0)
-# propagated_formal_errors = estimation.propagate_formal_errors_rsw_split_output(covariance_output, estimator, output_times)
+# Propagate formal errors (TO BE FIXED, NOT YET POSSIBLE FOR MULTI-ARC)
+"""
+output_times = np.arange(start_gco, end_gco, 3600.0)
+propagated_formal_errors = estimation.propagate_formal_errors_rsw_split_output(covariance_output, estimator, output_times)
+"""
 
 
 # We are now ready to get the simulated results and draw some **cool plots**. 
 # Let's analyse results for the first propagation arc, and plot it. 
 # What we are seeing here is the trajectory of `JUICE` over one day.
-
-# In[27]:
-
 
 # Get simulation results over first propagation arc
 simulation_results_first_arc = simulation_results[0]
@@ -747,9 +675,6 @@ ax1.grid()
 
 # If you recall, we had also chosen to save the latitude and longitude of JUICE on Ganymede along the propagation, as dependent variables.
 # We can now use that information to see the ground track of `JUICE` on Ganymede. In order to do this, we will use the `ganymede_map.jpg` file.
-
-# In[28]:
-
 
 # Plot JUICE ground track during first propagation arc
 ax2 = fig.add_subplot(122)
@@ -771,9 +696,6 @@ ax2.set_title('JUICE Ground Track Over One Day')
 
 # We can also visualize the **weighted partials** values as a function of estimated parameter and observation.
 
-# In[29]:
-
-
 # Plot weighted partials
 plt.figure(figsize=(9, 6))
 plt.imshow(np.log10(np.abs(partials)), aspect='auto', interpolation='none')
@@ -784,23 +706,22 @@ plt.ylabel("Index - Observation")
 plt.xlabel("Index - Estimated Parameter")
 plt.tight_layout()
 
-# # Plot contribution of consider parameters to formal errors
-# plt.figure()
-# plt.plot(apriori_constraints, label='apriori constraints')
-# plt.plot(formal_errors, label='nominal errors')
-# plt.plot(formal_errors_with_consider_parameters, label='errors w/ consider parameters')
-# plt.grid()
-# plt.yscale("log")
-# plt.ylabel('Formal errors')
-# plt.xlabel('Index parameter [-]')
-# plt.legend()
-# plt.title('Effect consider parameters')
+# Plot contribution of consider parameters to formal errors
+"""
+plt.figure()
+plt.plot(apriori_constraints, label='apriori constraints')
+plt.plot(formal_errors, label='nominal errors')
+plt.plot(formal_errors_with_consider_parameters, label='errors w/ consider parameters')
+plt.grid()
+plt.yscale("log")
+plt.ylabel('Formal errors')
+plt.xlabel('Index parameter [-]')
+plt.legend()
+plt.title('Effect consider parameters')
+"""
 
 
 # Let's plot the **correlation values** between the estimated parameters, too (this is similar at what we have already seen in the very first Delfi-C3 covariance example, where correlation results are also properly commented: https://docs.tudat.space/en/latest/_src_getting_started/_src_examples/notebooks/estimation/covariance_estimated_parameters.html).
-
-# In[30]:
-
 
 # Plot correlations (default)
 plt.figure(figsize=(9, 6))
@@ -811,20 +732,19 @@ plt.xlabel("Index - Estimated Parameter")
 plt.ylabel("Index - Estimated Parameter")
 plt.tight_layout()
 
-# # Plot correlations (incl. contribution of consider parameters)
-# plt.figure(figsize=(9, 6))
-# plt.imshow(np.abs(correlations_with_consider_parameters), aspect='auto', interpolation='none')
-# plt.colorbar()
-# plt.title("Correlations w/ consider parameters")
-# plt.xlabel("Index - Estimated Parameter")
-# plt.ylabel("Index - Estimated Parameter")
-# plt.tight_layout()
+# Plot correlations (incl. contribution of consider parameters)
+"""
+plt.figure(figsize=(9, 6))
+plt.imshow(np.abs(correlations_with_consider_parameters), aspect='auto', interpolation='none')
+plt.colorbar()
+plt.title("Correlations w/ consider parameters")
+plt.xlabel("Index - Estimated Parameter")
+plt.ylabel("Index - Estimated Parameter")
+plt.tight_layout()
+"""
 
 
 # We can also plot the **doppler observations times** from the *Malargue* station, for the first arc.
-
-# In[31]:
-
 
 # Retrieve Doppler observation times for the first arc. For now only Malargue, but should eventually include all three ESTRACK stations
 sorted_observations = simulated_observations.sorted_observation_sets
@@ -847,9 +767,6 @@ plt.grid()
 
 
 # Finally, we can plot the estimated **Root Mean Square of the Gravity Coefficients** and compare it to the (more conservative) Kaula's rule.
-
-# In[32]:
-
 
 # Plot gravity field spectrum (a priori + formal errors)
 # Extract a priori cosine and sine coefs
@@ -908,9 +825,6 @@ plt.legend()
 
 # Show all plots
 plt.show()
-
-
-# In[ ]:
 
 
 
