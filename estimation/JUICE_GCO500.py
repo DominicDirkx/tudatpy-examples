@@ -3,6 +3,9 @@
 
 """
 
+import sys
+sys.path.insert(0, "/home/dominic/Tudat/tudat-bundle/tudat-bundle/cmake-build-default/tudatpy")
+
 ## Objectives
 """
 With this example, you will learn **how to simulate and solve a relevant estimation problem using the `JUICE`'s spacecraft during one of its two Ganymede Circular Orbit Phases**. `JUICE` will make detailed observations of JUPITER and its large ocean-bearing moons – Ganymede, Callisto and Europa – with a suite of remote sensing, geophysical and in situ instruments. Range and Doppler measurements of `JUICE` taken from Earth will improve our knowledge of the Jovian system properties and dynamics. 
@@ -94,8 +97,9 @@ spice.load_standard_kernels(kernels)
 # `JUICE` will be orbiting Ganymede, so we choose Ganymede and J2000 as origin and orientation of the global reference frame, respectively.
 
 # Set simulation start and end epochs
+number_of_days = 100.0
 start_gco = DateTime( 2035, 5, 21, 12, 0, 0.0 ).epoch( )  # beginning circular orbital phase
-end_gco = start_gco + 100.0 * constants.JULIAN_DAY # 35.73 * constants.JULIAN_YEAR  # end circular orbital phase
+end_gco = start_gco + number_of_days * constants.JULIAN_DAY # 35.73 * constants.JULIAN_YEAR  # end circular orbital phase
 # Define global propagation settings
 global_frame_origin = "Ganymede"
 global_frame_orientation = "J2000"
@@ -225,14 +229,14 @@ acceleration_models = propagation_setup.create_acceleration_models(
 # Let's define the start and end epoch (in Julian Days) for each arc, and print their number.
 
 # Define propagation arcs during GCO (one day long)
-arc_duration = 1.0 * constants.JULIAN_DAY
+arc_duration = 3.0 * constants.JULIAN_DAY
 
 arc_start_times = []
 arc_end_times = []
 arc_start = start_gco
 while arc_start+arc_duration <= end_gco:
     arc_start_times.append(arc_start)
-    arc_end_times.append(arc_start+arc_duration)
+    arc_end_times.append(arc_start+arc_duration+3600.0)
     arc_start += arc_duration
 
 # Extract total number of (propagation) arcs during GCO
@@ -326,12 +330,15 @@ for station in station_names:
 
 # Define tracking arcs (arc duration is set to 8h/day during GCO)
 # The tracking arcs are (arbitrarily) set to start 2h after the start of each propagation arc.
-tracking_arc_duration = 8.0 * 3600.0
+tracking_arc_duration = 24.0 * 3600.0
 tracking_arcs_start = []
 tracking_arcs_end = []
 for arc_start in arc_start_times:
-    tracking_arc_start = arc_start + 2.0 * 3600.0
-    tracking_arcs_start.append(tracking_arc_start)
+    tracking_arc_start = arc_start
+    if( arc_start == arc_start_times[ 0 ] ):
+        tracking_arcs_start.append(tracking_arc_start+3600.0)
+    else:
+        tracking_arcs_start.append(tracking_arc_start)
     tracking_arcs_end.append(tracking_arc_start + tracking_arc_duration)
 
 
@@ -412,7 +419,7 @@ for station in station_names:
 # Check whether Ganymede or Jupiter are occulting the signal
 viability_settings.append(observation.body_occultation_viability(["JUICE", ""], "Ganymede"))
 viability_settings.append(observation.body_occultation_viability(["JUICE", ""], "Jupiter"))
-# Check whether SEP angle is sufficiently large
+# # Check whether SEP angle is sufficiently large
 viability_settings.append(observation.body_avoidance_viability(["JUICE", ""], "Sun", np.deg2rad(5.0)))
 
 # Apply viability checks to all simulated observations
@@ -442,7 +449,7 @@ parameter_settings.append(estimation_setup.parameter.spherical_harmonics_s_coeff
 
 # Add Ganymede's rotational parameters
 # parameter_settings.append(estimation_setup.parameter.constant_rotation_rate("Ganymede"))
-# parameter_settings.append(estimation_setup.parameter.rotation_pole_position("Ganymede"))
+parameter_settings.append(estimation_setup.parameter.rotation_pole_position("Ganymede"))
 
 
 # When propagating the dynamics of the spacecraft during each arc,  we might want to take into account for possible errors in the accelerometer calibration of the spacecraft. These are modelled by introducing an **empirical acceleration** components along each spatial dimension. 
@@ -458,11 +465,10 @@ for station in station_names:
     parameter_settings.append(estimation_setup.parameter.ground_station_position("Earth", station))
 
 # Add arc-wise range biases as consider parameters
-"""
 for link_end in link_ends:
     parameter_settings.append(estimation_setup.parameter.arcwise_absolute_observation_bias(
         observation.LinkDefinition(link_end), observation.n_way_range_type, tracking_arcs_start, observation.receiver))
-"""
+
 
 
 # Define consider parameters (COMMENTED FOR NOW BECAUSE OF OBS BIAS PARTIAL ISSUE)
@@ -567,7 +573,7 @@ for i in range(indices_rotation_pole[1]//2):
 
 
 # Set a priori constraints for empirical accelerations acting on JUICE
-a_priori_emp_acc = 1.0e-7
+a_priori_emp_acc = 1.0e-8
 indices_emp_acc = parameters_to_estimate.indices_for_parameter_type((estimation_setup.parameter.arc_wise_empirical_acceleration_coefficients_type, ("JUICE", "Ganymede")))[0]
 for i in range(indices_emp_acc[1]):
     inv_apriori[indices_emp_acc[0] + i, indices_emp_acc[0] + i] = a_priori_emp_acc ** -2
@@ -750,14 +756,14 @@ plt.tight_layout()
 sorted_observations = simulated_observations.sorted_observation_sets
 # doppler_obs_times_new_norcia_first_arc = [(t-start_gco)/3600.0 for t in sorted_observations[observation.n_way_averaged_doppler_type][0][0].observation_times if t <= start_gco+arc_duration]
 # doppler_obs_times_cebreros_first_arc = [(t-start_gco)/3600.0 for t in sorted_observations[observation.n_way_averaged_doppler_type][1][0].observation_times if t <= start_gco+arc_duration]
-doppler_obs_times_malargue_first_arc = [(t-start_gco)/3600.0 for t in sorted_observations[observation.n_way_averaged_doppler_type][0][0].observation_times if t <= start_gco+arc_duration]
+doppler_obs_times_malargue_first_arc = [(t-start_gco)/3600.0 for t in sorted_observations[observation.n_way_averaged_doppler_type][0][0].observation_times if t <= start_gco+10 * arc_duration]
 
 
 # Plot observation times (for now only for Malargue, but designed to eventually include all three ESTRACK stations)
 plt.figure()
 # plt.plot(doppler_obs_times_new_norcia_first_arc, np.ones((len(doppler_obs_times_new_norcia_first_arc),1 )))
 # plt.plot(doppler_obs_times_cebreros_first_arc, 2.0 * np.ones((len(doppler_obs_times_cebreros_first_arc),1 )))
-plt.plot(doppler_obs_times_malargue_first_arc, 3.0 * np.ones((len(doppler_obs_times_malargue_first_arc),1 )))
+plt.scatter(doppler_obs_times_malargue_first_arc, 3.0 * np.ones((len(doppler_obs_times_malargue_first_arc),1 )))
 plt.xlabel('Observation times [h]')
 plt.ylabel('')
 plt.yticks([1, 2, 3], ['New Norcia', 'Cebreros', 'Malargue'])
